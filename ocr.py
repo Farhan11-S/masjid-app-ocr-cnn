@@ -9,6 +9,9 @@ import datetime
 from datetime import date
 from operator import itemgetter, attrgetter
 
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
 ROOT_PATH = os.getcwd()
 LINE_REC_PATH = os.path.join(ROOT_PATH, 'data/ID_CARD_KEYWORDS.csv')
 RELIGION_REC_PATH = os.path.join(ROOT_PATH, 'data/RELIGIONS.csv')
@@ -67,6 +70,9 @@ def ocr_raw(image):
 
     image = cv2.resize(image, (50 * 16, 500))
     # cv2.imshow("test1", image)
+    # while True:
+    #     if cv2.waitKey(1) & 0xFF == ord('q'):
+    #         break
 
     # image = automatic_brightness_and_contrast(image)
 
@@ -89,10 +95,14 @@ def ocr_raw(image):
     cv2.fillPoly(blackhat, pts=[np.asarray([(550, 150), (550, 499), (798, 499), (798, 150)])], color=(255, 255, 255))
     th, threshed = cv2.threshold(blackhat, 130, 255, cv2.THRESH_TRUNC)
 
-    pytesseract.pytesseract.tesseract_cmd = r'C:\Users\LENOVO\AppData\Local\Tesseract-OCR\tesseract.exe'
+    pytesseract.pytesseract.tesseract_cmd = r'F:\software\Tesseract-OCR\tesseract.exe'
     result_raw = pytesseract.image_to_string(threshed, lang="ind", config='--psm 4 --oem 3')
+    cv2.imshow("test1", threshed)
+    while True:
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
-    print(result_raw)
+    print("test", result_raw)
 
     return result_raw, id_number
 
@@ -162,6 +172,10 @@ def return_id_number(image, img_gray):
     try:
         nik = image[locs[1][1] - 15:locs[1][1] + locs[1][3] + 15, locs[1][0] - 15:locs[1][0] + locs[1][2] + 15]
         check_nik = True
+        # cv2.imshow("test1", nik)
+        # while True:
+        #     if cv2.waitKey(1) & 0xFF == ord('q'):
+        #         break
     except Exception as e:
         print(e)
         return ""
@@ -372,14 +386,14 @@ def main(image):
                 if len(alamat.split()) == 1:
                     alamat = re.sub('[^A-Z0-9.]', '', alamat).strip()
 
-        if 'RT/RW' in tmp_data:
-            for tmp_index in range(len(tmp_data)):
-                if "!" in tmp_data[tmp_index]:
-                    tmp_data[tmp_index] = tmp_data[tmp_index].replace("!", "1")
-                if "i" in tmp_data[tmp_index]:
-                    tmp_data[tmp_index] = tmp_data[tmp_index].replace("i", "1")
-                rt_rw = ' '.join(tmp_data[1:])
-                rt_rw = re.search(r'\d{3}/\d{3}', rt_rw).group()
+        # if 'RT/RW' in tmp_data:
+        #     for tmp_index in range(len(tmp_data)):
+        #         if "!" in tmp_data[tmp_index]:
+        #             tmp_data[tmp_index] = tmp_data[tmp_index].replace("!", "1")
+        #         if "i" in tmp_data[tmp_index]:
+        #             tmp_data[tmp_index] = tmp_data[tmp_index].replace("i", "1")
+        #         rt_rw = ' '.join(tmp_data[1:])
+        #         rt_rw = re.search(r'\d{3}/\d{3}', rt_rw).group()
 
         if 'Kel/Desa' in tmp_data:
             for tmp_index in range(len(tmp_data)):
