@@ -8,6 +8,7 @@ import textdistance
 import datetime
 from datetime import date
 from operator import itemgetter, attrgetter
+import sys
 
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -19,6 +20,8 @@ JENIS_KELAMIN_REC_PATH = os.path.join(ROOT_PATH, 'data/JENIS_KELAMIN.csv')
 NEED_COLON = [3, 4, 6, 8, 10, 11, 12, 13, 14, 15, 17, 18, 19, 21]
 NEXT_LINE = 9
 ID_NUMBER = 3
+pytesseract.pytesseract.tesseract_cmd = r'F:\software\Tesseract-OCR\tesseract.exe'
+
 
 def convertScale(img, alpha, beta):
     new_img = img * alpha + beta
@@ -69,6 +72,9 @@ def ocr_raw(image):
     # image = automatic_brightness_and_contrast(image)
 
     image = cv2.resize(image, (50 * 16, 500))
+    # normalizedImg = np.zeros((800, 800))
+    # normalizedImg = cv2.normalize(image,  normalizedImg, 0, 255, cv2.NORM_MINMAX)
+
     # cv2.imshow("test1", image)
     # while True:
     #     if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -95,7 +101,6 @@ def ocr_raw(image):
     cv2.fillPoly(blackhat, pts=[np.asarray([(550, 150), (550, 499), (798, 499), (798, 150)])], color=(255, 255, 255))
     th, threshed = cv2.threshold(blackhat, 130, 255, cv2.THRESH_TRUNC)
 
-    pytesseract.pytesseract.tesseract_cmd = r'F:\software\Tesseract-OCR\tesseract.exe'
     result_raw = pytesseract.image_to_string(threshed, lang="ind", config='--psm 4 --oem 3')
     cv2.imshow("test1", threshed)
     while True:
@@ -142,10 +147,10 @@ def return_id_number(image, img_gray):
     gradX = gradX.astype("uint8")
     gradX = cv2.morphologyEx(gradX, cv2.MORPH_CLOSE, rectKernel)
 
-    thresh = cv2.threshold(gradX, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
-    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, rectKernel)
+    threshGradX = cv2.threshold(gradX, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
+    threshGradX = cv2.morphologyEx(threshGradX, cv2.MORPH_CLOSE, rectKernel)
 
-    threshCnts, hierarchy = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    threshCnts, hierarchy = cv2.findContours(threshGradX.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     cnts = threshCnts
     cur_img = image.copy()
     cv2.drawContours(cur_img, cnts, -1, (0, 0, 255), 3)
@@ -158,7 +163,17 @@ def return_id_number(image, img_gray):
         # ar = w / float(h)
         # if ar > 3:
         # if (w > 40 ) and (h > 10 and h < 20):
-        if h > 10 and w > 100 and x < 300:
+        if h > 10 and w > 100 and x < 300 and x > 4:
+            crop_img = image[y-4:y+h+4, x-4:x+w+4]
+            gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
+            blur = cv2.GaussianBlur(gray, (3, 3), 0)
+            thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+            clean = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=1)
+            
+            aocra_latest = pytesseract.image_to_string(thresh, lang="OCRA-NEW", config='--psm 7 --oem 3')
+            aocra_first = pytesseract.image_to_string(thresh, lang="OCRA_0.000_6_1100", config='--psm 7 --oem 3')
+            check2 = pytesseract.image_to_string(clean, lang="ind", config='--psm 4 --oem 3')
             img = cv2.rectangle(copy, (x, y), (x + w, y + h), (0, 255, 0), 2)
             locs.append((x, y, w, h, w * h))
 
@@ -512,4 +527,6 @@ def main(image):
         kel_desa, kecamatan, pekerjaan, kewarganegaraan)
 
 if __name__ == '__main__':
-    main(sys.argv[1])
+    npimg = np.fromfile(sys.argv[1])
+    image = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+    main(image)

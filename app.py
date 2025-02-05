@@ -26,7 +26,7 @@ def upload_file(image_path):
 
             finish_time = time.time() - start_time
 
-            if not nik or not nama:
+            if not nik:
                 return json.dumps({
                     'error': True,
                     'message': 'Resolusi foto terlalu rendah, silakan coba lagi.'
@@ -69,5 +69,5 @@ def upload_file(image_path):
         })
 
 if __name__ == "__main__":
-    outputReal = upload_file("images/ktp.png")
+    outputReal = upload_file("images/tes6.jpg")
     print(outputReal)
