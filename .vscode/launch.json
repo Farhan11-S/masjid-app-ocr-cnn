@@ -9,6 +9,6 @@
         "type": "debugpy",
         "request": "launch",
         "program": "${file}",
-        "args": ["images/3/ktp6.jpg"],
+        "args": ["/home/soyae/Documents/barik/masjid-app-backend/storage/app/public/images/CKHCVsWKLe234lscC21APCikGV4qmKrRNlKSDJxC.png"],
     }]
 }

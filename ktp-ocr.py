@@ -1,142 +1,26 @@
-import cv2
-import numpy as np
-import os
-import pandas as pd
-import pytesseract
 import re
-import textdistance
-import datetime
-from datetime import date
-from operator import itemgetter, attrgetter
+import os
+import cv2
 import sys
+import datetime
+import numpy as np
+import pytesseract
+import textdistance
+import pandas as pd
+import time
+import json
 
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-
-ROOT_PATH = os.getcwd()
+goodResultLatest = 0
+goodResultOld = 0
+# ROOT_PATH = os.getcwd()
+ROOT_PATH = os.path.dirname(os.path.realpath(__file__))
 LINE_REC_PATH = os.path.join(ROOT_PATH, 'data/ID_CARD_KEYWORDS.csv')
 RELIGION_REC_PATH = os.path.join(ROOT_PATH, 'data/RELIGIONS.csv')
 JENIS_KELAMIN_REC_PATH = os.path.join(ROOT_PATH, 'data/JENIS_KELAMIN.csv')
 NEED_COLON = [3, 4, 6, 8, 10, 11, 12, 13, 14, 15, 17, 18, 19, 21]
 NEXT_LINE = 9
-ID_NUMBER = 3
-# pytesseract.pytesseract.tesseract_cmd = r'F:\software\Tesseract-OCR\tesseract.exe'
 
-
-def convertScale(img, alpha, beta):
-    new_img = img * alpha + beta
-    new_img[new_img < 0] = 0
-    new_img[new_img > 255] = 255
-    return new_img.astype(np.uint8)
-
-def automatic_brightness_and_contrast(image, clip_hist_percent=10):
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-    # Calculate grayscale histogram
-    hist = cv2.calcHist([gray],[0],None,[256],[0,256])
-    hist_size = len(hist)
-
-    # Calculate cumulative distribution from the histogram
-    accumulator = []
-    accumulator.append(float(hist[0]))
-    for index in range(1, hist_size):
-        accumulator.append(accumulator[index -1] + float(hist[index]))
-
-    # Locate points to clip
-    maximum = accumulator[-1]
-    clip_hist_percent *= (maximum/100.0)
-    clip_hist_percent /= 2.0
-
-    # Locate left cut
-    minimum_gray = 0
-    while accumulator[minimum_gray] < clip_hist_percent:
-        minimum_gray += 1
-
-    # Locate right cut
-    maximum_gray = hist_size -1
-    while accumulator[maximum_gray] >= (maximum - clip_hist_percent):
-        maximum_gray -= 1
-
-    # Calculate alpha and beta values
-    alpha = 255 / (maximum_gray - minimum_gray)
-    beta = -minimum_gray * alpha
-
-    auto_result = convertScale(image, alpha=alpha, beta=beta)
-    # auto_result = cv2.convertScaleAbs(image, alpha=alpha, beta=beta)
-    return auto_result
-
-# ------------------------------------------------------------------------------
-
-def ocr_raw(image):
-    # img_raw = cv2.imread(image_path)
-    # image = automatic_brightness_and_contrast(image)
-
-    image = cv2.resize(image, (50 * 16, 500))
-    # normalizedImg = np.zeros((800, 800))
-    # normalizedImg = cv2.normalize(image,  normalizedImg, 0, 255, cv2.NORM_MINMAX)
-
-    # cv2.imshow("test1", image)
-    # while True:
-    #     if cv2.waitKey(1) & 0xFF == ord('q'):
-    #         break
-
-    # image = automatic_brightness_and_contrast(image)
-
-    img_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-    # img_gray = cv2.equalizeHist(img_gray)
-    # img_gray = cv2.fastNlMeansDenoising(img_gray, None, 3, 7, 21)
-
-    rectKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 7))
-    sqKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (21, 21))
-    # smooth the image using a 3x3 Gaussian blur and then apply a
-    # blackhat morpholigical operator to find dark regions on a light
-    # background
-    gray = cv2.GaussianBlur(img_gray, (3, 3), 0)
-    blackhat = cv2.morphologyEx(img_gray, cv2.MORPH_BLACKHAT, rectKernel)
-
-    id_number = return_id_number(image, blackhat)
-    if id_number == "":
-        raise Exception("KTP tidak terdeteksi")
-
-    cv2.fillPoly(blackhat, pts=[np.asarray([(550, 150), (550, 499), (798, 499), (798, 150)])], color=(255, 255, 255))
-    th, threshed = cv2.threshold(blackhat, 130, 255, cv2.THRESH_TRUNC)
-
-    result_raw = pytesseract.image_to_string(threshed, lang="ind", config='--psm 4 --oem 3')
-    cv2.imshow("test1", threshed)
-    while True:
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    print("test", result_raw)
-
-    return result_raw, id_number
-
-def strip_op(result_raw):
-    result_list = result_raw.split('\n')
-    new_result_list = []
-
-    for tmp_result in result_list:
-        if tmp_result.strip(' '):
-            new_result_list.append(tmp_result)
-
-    return new_result_list
-
-def sort_contours(cnts, method="left-to-right"):
-    reverse = False
-    i = 0
-
-    if method == "right-to-left" or method == "bottom-to-top":
-        reverse = True
-
-    if method == "top-to-bottom" or method == "bottom-to-top":
-        i = 1
-
-    boundingBoxes = [cv2.boundingRect(c) for c in cnts]
-    (cnts, boundingBoxes) = zip(*sorted(zip(cnts, boundingBoxes), key=lambda b: b[1][i], reverse=reverse))
-
-    return cnts, boundingBoxes
-
-def return_id_number(image, img_gray):
+def imageCropper(image, img_gray, filename, dir, goodResultLatest, goodResultOld):
     rectKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
     tophat = cv2.morphologyEx(img_gray, cv2.MORPH_TOPHAT, rectKernel)
 
@@ -157,130 +41,61 @@ def return_id_number(image, img_gray):
     copy = image.copy()
 
     locs = []
+    nik = ""
+    biodata = ""
     for (i, c) in enumerate(cnts):
         (x, y, w, h) = cv2.boundingRect(c)
-
-        # ar = w / float(h)
-        # if ar > 3:
-        # if (w > 40 ) and (h > 10 and h < 20):
-        if h > 10 and w > 100 and x < 300 and x > 4:
+        
+        if (w > 360 and h > 240) or (w > 300 and h < 30):
             crop_img = image[y-4:y+h+4, x-4:x+w+4]
             gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
             blur = cv2.GaussianBlur(gray, (3, 3), 0)
-            thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-            clean = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=1)
+            thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_TRUNC + cv2.THRESH_OTSU)[1]
+
+            if w > 425 and h > 200:
+                biodata = pytesseract.image_to_string(thresh, lang="Arialv2.4", config='--psm 4 --oem 3')
             
-            aocra_latest = pytesseract.image_to_string(thresh, lang="ind", config='--psm 7 --oem 3')
-            # aocra_first = pytesseract.image_to_string(thresh, lang="OCRA_0.000_6_1100", config='--psm 7 --oem 3')
-            check2 = pytesseract.image_to_string(clean, lang="ind", config='--psm 4 --oem 3')
-            img = cv2.rectangle(copy, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            locs.append((x, y, w, h, w * h))
-
-    locs = sorted(locs, key=itemgetter(1), reverse=False)
-
-    # nik = image[locs[1][1] - 15:locs[1][1] + locs[1][3] + 15, locs[1][0] - 15:locs[1][0] + locs[1][2] + 15]
-    # text = image[locs[2][1] - 10:locs[2][1] + locs[2][3] + 10, locs[2][0] - 10:locs[2][0] + locs[2][2] + 10]
-
-    check_nik = False
-
-    try:
-        nik = image[locs[1][1] - 15:locs[1][1] + locs[1][3] + 15, locs[1][0] - 15:locs[1][0] + locs[1][2] + 15]
-        check_nik = True
-        # cv2.imshow("test1", nik)
-        # while True:
-        #     if cv2.waitKey(1) & 0xFF == ord('q'):
-        #         break
-    except Exception as e:
-        print(e)
-        return ""
-
-    if check_nik == True:
-        img_mod = cv2.imread("data/module2.png")
-
-        ref = cv2.cvtColor(img_mod, cv2.COLOR_BGR2GRAY)
-        ref = cv2.threshold(ref, 66, 255, cv2.THRESH_BINARY_INV)[1]
-
-        refCnts, hierarchy = cv2.findContours(ref.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        refCnts = sort_contours(refCnts, method="left-to-right")[0]
-
-        digits = {}
-        for (i, c) in enumerate(refCnts):
-            (x, y, w, h) = cv2.boundingRect(c)
-            roi = ref[y:y + h, x:x + w]
-            roi = cv2.resize(roi, (57, 88))
-            digits[i] = roi
-
-        gray_nik = cv2.cvtColor(nik, cv2.COLOR_BGR2GRAY)
-        group = cv2.threshold(gray_nik, 127, 255, cv2.THRESH_BINARY_INV)[1]
-
-        digitCnts, hierarchy_nik = cv2.findContours(group.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        nik_r = nik.copy()
-        cv2.drawContours(nik_r, digitCnts, -1, (0, 0, 255), 3)
-
-        gX = locs[1][0]
-        gY = locs[1][1]
-        gW = locs[1][2]
-        gH = locs[1][3]
-
-        ctx = sort_contours(digitCnts, method="left-to-right")[0]
-
-        locs_x = []
-        for (i, c) in enumerate(ctx):
-            (x, y, w, h) = cv2.boundingRect(c)
-            if h > 10 and w > 10:
-                img = cv2.rectangle(nik_r, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                locs_x.append((x, y, w, h))
+            if w > 300 and h < 30:
+                nik = pytesseract.image_to_string(thresh, lang="OCRA-11-02-2024v1.4", config='--psm 7 --oem 3')
 
 
-        output = []
-        groupOutput = []
+    return nik, biodata
+                           
+def writeToFile(ocrResult, filename, img):
+    cv2.imwrite(filename+".png", img)
+    with open(f"{filename}.gt.txt", "w") as text_file:
+        text_file.write(ocrResult)     
 
-        for c in locs_x:
-            (x, y, w, h) = c
-            roi = group[y:y + h, x:x + w]
-            roi = cv2.resize(roi, (57, 88))
+def resultChecker(ocrResult, filename):
+    txt_filename = f"{filename}.gt.txt"
+    
+    if os.path.exists(txt_filename):
+        with open(txt_filename, 'r') as file:
+            expected_result = file.read().strip()
+            ocrResult = ocrResult.rstrip('\n')
+            return ocrResult.strip() == expected_result
+    return False
 
-            scores = []
-            for (digit, digitROI) in digits.items():
-                result = cv2.matchTemplate(roi, digitROI, cv2.TM_CCOEFF)
-                (_, score, _, _) = cv2.minMaxLoc(result)
-                scores.append(score)
+def listFiles(dir):
+    r = []
+    for root, dirs, files in os.walk("images/"+dir):
+        for name in files:
+            r.append(os.path.join(root, name))
+    return r
 
-            groupOutput.append(str(np.argmax(scores)))
+def strip_op(result_raw):
+    result_list = result_raw.split('\n')
+    new_result_list = []
 
-        cv2.rectangle(image, (gX - 5, gY - 5), (gX + gW + 5, gY + gH + 5), (0, 0, 255), 1)
-        cv2.putText(image, "".join(groupOutput), (gX, gY - 15), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+    for tmp_result in result_list:
+        if tmp_result.strip(' '):
+            new_result_list.append(tmp_result)
 
-        output.extend(groupOutput)
-        return ''.join(output)
-    else:
-        return ""
+    return new_result_list
 
-def main(image):
+def biodataBuilder(biodata):
     raw_df = pd.read_csv(LINE_REC_PATH, header=None)
-    religion_df = pd.read_csv(RELIGION_REC_PATH, header=None)
-    jenis_kelamin_df = pd.read_csv(JENIS_KELAMIN_REC_PATH, header=None)
-    result_raw, id_number = ocr_raw(image)
-    result_list = strip_op(result_raw)
-
-    provinsi = ""
-    kabupaten = ""
-    nik = ""
-    nama = ""
-    tempat_lahir = ""
-    tgl_lahir = ""
-    jenis_kelamin = ""
-    alamat = ""
-    status_perkawinan = ""
-    agama = ""
-    rt_rw = "" 
-    kel_desa = "" 
-    kecamatan = ""
-    pekerjaan = ""
-    kewarganegaraan = ""
-
-    # print("NIK: " + str(id_number))
+    result_list = strip_op(biodata)
 
     loc2index = dict()
     for i, tmp_line in enumerate(result_list):
@@ -320,6 +135,25 @@ def main(image):
             else:
                 last_result_list.append(tmp_list)
 
+    return biodataTransformer(last_result_list)
+
+def biodataTransformer(last_result_list):
+    religion_df = pd.read_csv(RELIGION_REC_PATH, header=None)
+    jenis_kelamin_df = pd.read_csv(JENIS_KELAMIN_REC_PATH, header=None)
+    provinsi = ""
+    kabupaten = ""
+    nama = ""
+    tempat_lahir = ""
+    tgl_lahir = ""
+    jenis_kelamin = ""
+    alamat = ""
+    status_perkawinan = ""
+    agama = ""
+    kel_desa = "" 
+    kecamatan = ""
+    pekerjaan = ""
+    kewarganegaraan = ""
+
     for tmp_data in last_result_list:
         if '—' in tmp_data:
             tmp_data.remove('—')
@@ -345,35 +179,12 @@ def main(image):
             if len(nama.split()) == 1:
                 nama = re.sub('[^A-Z.]', '', nama)
 
-        if 'NIK' in tmp_data:
-            if len(id_number) != 16:
-                # id_number = tmp_data[2]
-
-                if "D" in id_number:
-                    id_number = id_number.replace("D", "0")
-                if "?" in id_number:
-                    id_number = id_number.replace("?", "7")
-                if "L" in id_number:
-                    id_number = id_number.replace("L", "1")
-
-                while len(tmp_data) > 2:
-                    tmp_data.pop()
-                tmp_data.append(id_number)
-            else:
-                while len(tmp_data) > 3:
-                    tmp_data.pop()
-                if len(tmp_data) < 3:
-                    tmp_data.append(id_number)
-                tmp_data[2] = id_number
-
         if 'Agama' in tmp_data:
             for tmp_index, tmp_word in enumerate(tmp_data[1:]):
                 tmp_sim_list = [textdistance.damerau_levenshtein.normalized_similarity(tmp_word, tmp_word_) for tmp_word_ in religion_df[0].values]
 
                 tmp_sim_np = np.asarray(tmp_sim_list)
                 arg_max = np.argmax(tmp_sim_np)
-
-                print(tmp_sim_np[arg_max])
 
                 if tmp_sim_np[arg_max] >= 0.6:
                     tmp_data[tmp_index + 1] = religion_df[0].values[arg_max]
@@ -519,14 +330,52 @@ def main(image):
             except:
                 tempat_lahir = ""
 
-    # for tmp_data in last_result_list:
-    #     print(' '.join(tmp_data))
+    return {
+        'nama': nama,
+        'tempat_lahir': tempat_lahir,
+        'tgl_lahir': tgl_lahir,
+        'jenis_kelamin': jenis_kelamin,
+        'agama': agama,
+        'status_perkawinan': status_perkawinan,
+        'provinsi': provinsi,
+        'kabupaten': kabupaten,
+        'alamat': alamat,
+        'kel_desa': kel_desa,
+        'kecamatan': kecamatan,
+        'pekerjaan': pekerjaan,
+        'kewarganegaraan': kewarganegaraan
+    }
 
-    return (id_number, nama, tempat_lahir, tgl_lahir, jenis_kelamin, 
-        agama, status_perkawinan, provinsi, kabupaten, alamat, rt_rw, 
-        kel_desa, kecamatan, pekerjaan, kewarganegaraan)
+def readImage(filename):
+    npimg = np.fromfile(filename, np.uint8)
+    #         break
+    image = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+    image = cv2.resize(image, (50 * 16, 500))
+    img_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    rectKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 7))
+    blackhat = cv2.morphologyEx(img_gray, cv2.MORPH_BLACKHAT, rectKernel)
+
+    return image, blackhat
 
 if __name__ == '__main__':
-    npimg = np.fromfile(sys.argv[1])
-    image = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
-    main(image)
+    start_time = time.time()
+    filename = sys.argv[1]
+
+    try:
+        image, blackhat = readImage(filename)
+        nik, biodata = imageCropper(image, blackhat, filename, "1", goodResultLatest, goodResultOld)
+
+        if nik or biodata:
+            result = biodataBuilder(biodata)
+            result['nik'] = nik.strip('\n')
+            finish_time = time.time() - start_time
+            result['time_elapsed'] = str(round(finish_time, 3))
+            print(json.dumps(result, indent=None, separators=(',', ':')))
+        else:
+            print("NIK not found")
+    except Exception as e:
+        print("err : " + str(e))
+
+    sys.exit(0)
+
+    
